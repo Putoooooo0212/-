@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>逆向小卡 PSD 生成器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Asap:wght@700&display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:'Asap';font-weight:700;font-style:normal;font-display:swap;src:url('https://fonts.gstatic.com/s/asap/v30/KFOOCn1hB5J8XcYlUc4j.woff2') format('woff2')}
+:root{--bg:#111;--card:#1a1a1a;--border:#333;--accent:#e63a2d;--text:#eee;--dim:#888}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:16px;padding:10px 20px;background:#181818;border-bottom:1px solid var(--border);flex-shrink:0}
+.topbar h1{font-size:16px;font-weight:600;letter-spacing:1px;white-space:nowrap}
+.topbar .sep{width:1px;height:24px;background:var(--border)}
+.topbar .tabs{display:flex;gap:0}
+.tab-btn{padding:6px 16px;background:transparent;border:1px solid var(--border);color:var(--dim);font-size:12px;cursor:pointer;transition:.2s}
+.tab-btn:first-child{border-radius:6px 0 0 6px}
+.tab-btn:last-child{border-radius:0 6px 6px 0}
+.tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.topbar .spacer{flex:1}
+.btn-gen{padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+.btn-gen:hover{background:#c33}
+.btn-gen:disabled{background:#333;color:#666;cursor:not-allowed}
+.btn-upload{padding:8px 16px;background:#2a2a2a;color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer}
+.btn-upload:hover{background:#3a3a3a}
+.main{display:flex;flex:1;overflow:hidden}
+.canvas-area{flex:1;display:flex;align-items:center;justify-content:center;background:#0a0a0a;position:relative;overflow:hidden}
+.canvas-wrap{position:relative;box-shadow:0 0 40px rgba(0,0,0,0.5)}
+#mainCanvas{display:block;cursor:default}
+.props{width:280px;background:var(--card);border-left:1px solid var(--border);overflow-y:auto;padding:16px;flex-shrink:0}
+.props h3{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin:16px 0 10px}
+.props h3:first-child{margin-top:0}
+.prop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.prop-row label{font-size:11px;color:var(--dim);width:36px;flex-shrink:0;text-align:right}
+.prop-row input[type=range]{flex:1;accent-color:var(--accent)}
+.prop-row .val{font-size:11px;color:var(--text);width:40px;text-align:center;font-family:monospace}
+.prop-row input[type=text]{flex:1;background:#111;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 8px;font-size:12px;font-family:monospace}
+.drag-hint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);padding:6px 14px;border-radius:20px;font-size:11px;color:var(--dim);pointer-events:none;transition:opacity .3s}
+#fileInput{display:none}
+.busy-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:100;flex-direction:column}
+.busy-overlay.show{display:flex}
+.spinner{width:32px;height:32px;border:3px solid #333;border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.busy-text{color:var(--text);font-size:13px;margin-top:12px}
+.busy-sub{color:var(--dim);font-size:11px;margin-top:4px}
+.zoom-controls{position:absolute;bottom:12px;right:12px;display:flex;gap:4px}
+.zoom-btn{width:28px;height:28px;background:rgba(30,30,30,0.9);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.zoom-btn:hover{background:#333}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.12/dist/index.umd.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🔴 逆向小卡</h1>
+  <div class="sep"></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-layer="composite">合成</button>
+    <button class="tab-btn" data-layer="print">印刷层</button>
+    <button class="tab-btn" data-layer="white">白墨层(人物)</button>
+    <button class="tab-btn" data-layer="reverse">逆向层(背景)</button>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn-upload" id="btnUpload" onclick="document.getElementById('fileInput').click()">📷 上传照片</button>
+  <input type="file" id="fileInput" accept="image/*">
+  <button class="btn-gen" id="btnGen" disabled>⬇ 导出 PNG</button>
+</div>
+
+<div class="main">
+  <div class="canvas-area" id="canvasArea">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="mainCanvas" width="791" height="1098"></canvas>
+    </div>
+    <div class="busy-overlay" id="busy">
+      <div class="spinner"></div>
+      <div class="busy-text" id="busyText">处理中...</div>
+      <div class="busy-sub" id="busySub"></div>
+    </div>
+    <div class="drag-hint" id="dragHint">上传照片后，拖拽移动 / 滚轮缩放</div>
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="zoomOut">−</button>
+      <button class="zoom-btn" id="zoomFit">⊡</button>
+      <button class="zoom-btn" id="zoomIn">+</button>
+    </div>
+  </div>
+
+  <div class="props" id="propsPanel">
+    <h3>📷 照片变换</h3>
+    <div class="prop-row"><label>缩放</label><input type="range" id="pScale" min="10" max="300" value="100"><span class="val" id="pScaleVal">100%</span></div>
+    <div class="prop-row"><label>X</label><input type="range" id="pX" min="-400" max="1200" value="0"><span class="val" id="pXVal">0</span></div>
+    <div class="prop-row"><label>Y</label><input type="range" id="pY" min="-600" max="1600" value="0"><span class="val" id="pYVal">0</span></div>
+
+    <h3>📝 顶部文字</h3>
+    <div class="prop-row"><label>内容</label><input type="text" id="tTop" value="2026PROMOTIONALCARD"></div>
+    <div class="prop-row"><label>大小</label><input type="range" id="tTopSize" min="10" max="80" value="38"><span class="val" id="tTopSizeVal">38</span></div>
+    <div class="prop-row"><label>Y</label><input type="range" id="tTopY" min="0" max="200" value="75"><span class="val" id="tTopYVal">75</span></div>
+    <div class="prop-row"><label>描边</label><input type="range" id="tTopStroke" min="0" max="12" value="3" step="0.5"><span class="val" id="tTopStrokeVal">3</span></div>
+
+    <h3>📝 底部文字</h3>
+    <div class="prop-row"><label>内容</label><input type="text" id="tBot" value="2026-SSSR-KWIN"></div>
+    <div class="prop-row"><label>大小</label><input type="range" id="tBotSize" min="10" max="80" value="30"><span class="val" id="tBotSizeVal">30</span></div>
+    <div class="prop-row"><label>Y</label><input type="range" id="tBotY" min="900" max="1080" value="990"><span class="val" id="tBotYVal">990</span></div>
+    <div class="prop-row"><label>描边</label><input type="range" id="tBotStroke" min="0" max="12" value="3" step="0.5"><span class="val" id="tBotStrokeVal">3</span></div>
+
+    <h3>🎨 图层可见性</h3>
+    <div class="prop-row"><label style="width:auto"><input type="checkbox" id="showPrint" checked> 印刷层</label></div>
+    <div class="prop-row"><label style="width:auto"><input type="checkbox" id="showWhite" checked> 白墨层(人物)</label></div>
+    <div class="prop-row"><label style="width:auto"><input type="checkbox" id="showReverse" checked> 逆向层(背景)</label></div>
+  </div>
+</div>
+
+<script>
+const CW = 791, CH = 1098;
+const WHITE_COLOR = [5, 1, 1];
+const REVERSE_COLOR = [231, 27, 26];
+const FONT_FAMILY = '"Asap", "SF Pro Display", "Helvetica Neue", sans-serif';
+
+const state = {
+  img: null, imgX: 0, imgY: 0, imgScale: 1,
+  viewLayer: 'composite', zoom: 0.55, panX: 0, panY: 0,
+  subjectMask: null,
+};
+let layerCache = { print: null, white: null, reverse: null };
+
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+const canvasArea = document.getElementById('canvasArea');
+const canvasWrap = document.getElementById('canvasWrap');
+const fileInput = document.getElementById('fileInput');
+const btnGen = document.getElementById('btnGen');
+const busy = document.getElementById('busy');
+const busyText = document.getElementById('busyText');
+const busySub = document.getElementById('busySub');
+const dragHint = document.getElementById('dragHint');
+
+const ctrl = {
+  pScale: document.getElementById('pScale'), pScaleVal: document.getElementById('pScaleVal'),
+  pX: document.getElementById('pX'), pXVal: document.getElementById('pXVal'),
+  pY: document.getElementById('pY'), pYVal: document.getElementById('pYVal'),
+  tTop: document.getElementById('tTop'), tTopSize: document.getElementById('tTopSize'), tTopSizeVal: document.getElementById('tTopSizeVal'),
+  tTopY: document.getElementById('tTopY'), tTopYVal: document.getElementById('tTopYVal'),
+  tTopStroke: document.getElementById('tTopStroke'), tTopStrokeVal: document.getElementById('tTopStrokeVal'),
+  tBot: document.getElementById('tBot'), tBotSize: document.getElementById('tBotSize'), tBotSizeVal: document.getElementById('tBotSizeVal'),
+  tBotY: document.getElementById('tBotY'), tBotYVal: document.getElementById('tBotYVal'),
+  tBotStroke: document.getElementById('tBotStroke'), tBotStrokeVal: document.getElementById('tBotStrokeVal'),
+  showPrint: document.getElementById('showPrint'),
+  showWhite: document.getElementById('showWhite'),
+  showReverse: document.getElementById('showReverse'),
+};
+
+function fitContain(iw, ih, bw, bh) { return (iw/ih > bw/bh) ? bw/iw : bh/ih; }
+function getFont(size) { return `700 ${size}px ${FONT_FAMILY}`; }
+function showBusy(t, sub) { busyText.textContent = t; busySub.textContent = sub || ''; busy.classList.add('show'); }
+function hideBusy() { busy.classList.remove('show'); }
+
+// ── 抠图（本地算法）──
+async function extractSubject(img) {
+  showBusy('AI 抠图中...', '首次加载模型约需 30 秒');
+  
+  try {
+    // 方法1: 使用浏览器端 AI 抠图 (@imgly/background-removal)
+    if (window.imglyRemoveBackground) {
+      console.log('使用浏览器端 AI 抠图...');
+      const tc = document.createElement('canvas');
+      tc.width = img.width; tc.height = img.height;
+      tc.getContext('2d').drawImage(img, 0, 0);
+      const blob = await new Promise(r => tc.toBlob(r, 'image/png'));
+      
+      const resultBlob = await window.imglyRemoveBackground(blob, {
+        progress: (key, current, total) => {
+          if (key === 'compute:inference') {
+            const pct = Math.round(current / total * 100);
+            showBusy('AI 抠图中...', `推理进度: ${pct}%`);
+          }
+        }
+      });
+      
+      const resultImg = new Image();
+      resultImg.src = URL.createObjectURL(resultBlob);
+      await new Promise(r => { resultImg.onload = r; });
+      
+      const mc = document.createElement('canvas');
+      mc.width = resultImg.width; mc.height = resultImg.height;
+      mc.getContext('2d').drawImage(resultImg, 0, 0);
+      const maskData = mc.getContext('2d').getImageData(0, 0, mc.width, mc.height);
+      
+      hideBusy();
+      return maskData;
+    }
+    
+    // 方法2: 调用服务器 /preview 接口
+    console.log('浏览器端不可用，调用服务器...');
+    const tc = document.createElement('canvas');
+    tc.width = img.width; tc.height = img.height;
+    tc.getContext('2d').drawImage(img, 0, 0);
+    const blob = await new Promise(r => tc.toBlob(r, 'image/png'));
+    
+    const fd = new FormData();
+    fd.append('image', blob, 'image.png');
+    fd.append('top_text', ctrl.tTop.value || '');
+    fd.append('bottom_text', ctrl.tBot.value || '');
+    
+    const resp = await fetch('/preview', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error('服务器错误');
+    
+    const data = await resp.json();
+    const whiteImg = new Image();
+    whiteImg.src = 'data:image/png;base64,' + data.white;
+    await new Promise(r => whiteImg.onload = r);
+    
+    const mc = document.createElement('canvas');
+    mc.width = whiteImg.width; mc.height = whiteImg.height;
+    mc.getContext('2d').drawImage(whiteImg, 0, 0);
+    const maskData = mc.getContext('2d').getImageData(0, 0, mc.width, mc.height);
+    
+    hideBusy();
+    return maskData;
+    
+  } catch(e) {
+    console.error('AI 抠图失败，使用本地算法:', e);
+    hideBusy();
+    return localFallback(img);
+  }
+}
+
+function localFallback(img) {
+  showBusy('使用本地算法...');
+  const w = img.width, h = img.height;
+  const tc = document.createElement('canvas');
+  tc.width = w; tc.height = h;
+  const cx = tc.getContext('2d');
+  cx.drawImage(img, 0, 0);
+  const id = cx.getImageData(0, 0, w, h);
+  const d = id.data;
+  
+  // 1. 计算灰度和边缘
+  const gray = new Float32Array(w * h);
+  const edge = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const j = i * 4;
+      gray[i] = d[j] * 0.299 + d[j+1] * 0.587 + d[j+2] * 0.114;
+    }
+  }
+  
+  // Sobel 边缘检测
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const gx = -gray[(y-1)*w+(x-1)] + gray[(y-1)*w+(x+1)]
+               - 2*gray[y*w+(x-1)] + 2*gray[y*w+(x+1)]
+               - gray[(y+1)*w+(x-1)] + gray[(y+1)*w+(x+1)];
+      const gy = -gray[(y-1)*w+(x-1)] - 2*gray[(y-1)*w+x] - gray[(y-1)*w+(x+1)]
+               + gray[(y+1)*w+(x-1)] + 2*gray[(y+1)*w+x] + gray[(y+1)*w+(x+1)];
+      edge[i] = Math.sqrt(gx*gx + gy*gy);
+    }
+  }
+  
+  // 2. 计算自适应阈值（局部均值）
+  const blockSize = 31;
+  const C = 10;
+  const mask = new Uint8Array(w * h);
+  const half = Math.floor(blockSize / 2);
+  
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, count = 0;
+      for (let dy = -half; dy <= half; dy += 3) {
+        for (let dx = -half; dx <= half; dx += 3) {
+          const ny = y + dy, nx = x + dx;
+          if (ny >= 0 && ny < h && nx >= 0 && nx < w) {
+            sum += gray[ny * w + nx];
+            count++;
+          }
+        }
+      }
+      const mean = sum / count;
+      // 暗色区域为前景
+      mask[y * w + x] = gray[y * w + x] < mean - C ? 255 : 0;
+    }
+  }
+  
+  // 3. 从中心 flood fill 保留最大连通区域
+  const visited = new Uint8Array(w * h);
+  const foreground = new Uint8Array(w * h);
+  const startIdx = Math.floor(h * 0.4) * w + Math.floor(w / 2);
+  const queue = [startIdx];
+  
+  while (queue.length > 0) {
+    const idx = queue.shift();
+    if (idx < 0 || idx >= w * h || visited[idx] || !mask[idx]) continue;
+    visited[idx] = 1;
+    foreground[idx] = 1;
+    const x = idx % w, y = Math.floor(idx / w);
+    if (x > 0) queue.push(idx - 1);
+    if (x < w - 1) queue.push(idx + 1);
+    if (y > 0) queue.push(idx - w);
+    if (y < h - 1) queue.push(idx + w);
+  }
+  
+  // 4. 膨胀前景区域
+  const expanded = new Uint8Array(w * h);
+  const radius = 8;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let found = false;
+      for (let dy = -radius; dy <= radius && !found; dy++) {
+        for (let dx = -radius; dx <= radius && !found; dx++) {
+          const ny = y + dy, nx = x + dx;
+          if (ny >= 0 && ny < h && nx >= 0 && nx < w && foreground[ny * w + nx]) {
+            found = true;
+          }
+        }
+      }
+      if (found) expanded[y * w + x] = 1;
+    }
+  }
+  
+  // 5. 高斯模糊边缘
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const j = i * 4;
+    const v = expanded[i] ? 255 : 0;
+    out[j] = out[j+1] = out[j+2] = out[j+3] = v;
+  }
+  
+  // 简单模糊
+  const blurred = new Uint8ClampedArray(out);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      for (let c = 0; c < 4; c++) {
+        blurred[i + c] = (
+          out[((y-1)*w+(x-1))*4+c] + out[((y-1)*w+x)*4+c] + out[((y-1)*w+(x+1))*4+c] +
+          out[(y*w+(x-1))*4+c] * 2 + out[(y*w+x)*4+c] * 4 + out[(y*w+(x+1))*4+c] * 2 +
+          out[((y+1)*w+(x-1))*4+c] + out[((y+1)*w+x)*4+c] + out[((y+1)*w+(x+1))*4+c]
+        ) / 16;
+      }
+    }
+  }
+  
+  hideBusy();
+  return new ImageData(blurred, w, h);
+}
+
+// ── 镂空描边蒙版 ──
+function buildTextMask(tp) {
+  const c = document.createElement('canvas');
+  c.width = CW; c.height = CH;
+  const cx = c.getContext('2d');
+  cx.fillStyle = 'white';
+  cx.fillRect(0, 0, CW, CH);
+  
+  // 顶部文字：双层描边镂空效果
+  // 外层黑色描边(镂空) → 内层白色描边(保留) → 文字本身(镂空)
+  if (tp.topText.trim()) {
+    cx.font = getFont(tp.topSize);
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    
+    // 1. 外层黑色描边（镂空）
+    if (tp.topStroke > 0) {
+      cx.strokeStyle = 'black';
+      cx.lineWidth = tp.topStroke * 2;
+      cx.lineJoin = 'round';
+      cx.lineCap = 'round';
+      cx.strokeText(tp.topText, CW / 2, tp.topY);
+    }
+    
+    // 2. 内层白色描边（保留）
+    if (tp.topStroke > 0) {
+      cx.strokeStyle = 'white';
+      cx.lineWidth = tp.topStroke;
+      cx.lineJoin = 'round';
+      cx.lineCap = 'round';
+      cx.strokeText(tp.topText, CW / 2, tp.topY);
+    }
+    
+    // 3. 文字本身（镂空）
+    cx.fillStyle = 'black';
+    cx.fillText(tp.topText, CW / 2, tp.topY);
+  }
+  
+  // 底部文字：普通镂空（无描边）
+  if (tp.botText.trim()) {
+    cx.font = getFont(tp.botSize);
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.fillStyle = 'black';
+    cx.fillText(tp.botText, CW / 2, tp.botY);
+  }
+  
+  return cx.getImageData(0, 0, CW, CH);
+}
+
+function applyTextCutout(imgData, tm) {
+  const d = imgData.data, m = tm.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (m[i] <= 128 && m[i+3] > 10) d[i+3] = 0;
+  }
+  return imgData;
+}
+
+function getTextParams() {
+  return {
+    topText: ctrl.tTop.value, topSize: +ctrl.tTopSize.value, topY: +ctrl.tTopY.value, topStroke: +ctrl.tTopStroke.value,
+    botText: ctrl.tBot.value, botSize: +ctrl.tBotSize.value, botY: +ctrl.tBotY.value, botStroke: +ctrl.tBotStroke.value,
+  };
+}
+
+function drawMaskToCanvas(maskData, srcW, srcH) {
+  const c = document.createElement('canvas');
+  c.width = CW; c.height = CH;
+  const cx = c.getContext('2d');
+  cx.clearRect(0, 0, CW, CH);
+  if (!maskData) return c;
+  const tmp = document.createElement('canvas');
+  tmp.width = srcW; tmp.height = srcH;
+  tmp.getContext('2d').putImageData(maskData, 0, 0);
+  // 蒙版跟随图片位置和缩放
+  cx.drawImage(tmp, state.imgX, state.imgY, srcW * state.imgScale, srcH * state.imgScale);
+  return c;
+}
+
+function getSubjectMaskCanvas() {
+  if (!state.subjectMask || !state.img) return null;
+  return drawMaskToCanvas(state.subjectMask, state.subjectMask.width, state.subjectMask.height);
+}
+
+function getBackgroundMaskCanvas() {
+  const subj = getSubjectMaskCanvas();
+  if (!subj) return null;
+  const c = document.createElement('canvas');
+  c.width = CW; c.height = CH;
+  const cx = c.getContext('2d');
+  cx.fillStyle = 'white';
+  cx.fillRect(0, 0, CW, CH);
+  cx.globalCompositeOperation = 'destination-out';
+  cx.drawImage(subj, 0, 0);
+  cx.globalCompositeOperation = 'source-over';
+  const t = document.createElement('canvas');
+  t.width = CW; t.height = CH;
+  t.getContext('2d').drawImage(c, 0, 0);
+  cx.clearRect(0, 0, CW, CH);
+  cx.filter = 'blur(2px)';
+  cx.drawImage(t, 0, 0);
+  cx.filter = 'none';
+  return c;
+}
+
+function buildColorLayer(maskCanvas, color) {
+  const c = document.createElement('canvas');
+  c.width = CW; c.height = CH;
+  const cx = c.getContext('2d');
+  cx.clearRect(0, 0, CW, CH);
+  if (!maskCanvas) return c;
+  const md = maskCanvas.getContext('2d').getImageData(0, 0, CW, CH).data;
+  const out = cx.createImageData(CW, CH);
+  const od = out.data;
+  for (let i = 0; i < CW * CH; i++) {
+    const j = i * 4;
+    od[j] = color[0]; od[j+1] = color[1]; od[j+2] = color[2]; od[j+3] = md[j+3];
+  }
+  cx.putImageData(out, 0, 0);
+  return c;
+}
+
+function buildPrintLayer() {
+  if (layerCache.print) return layerCache.print;
+  const c = document.createElement('canvas');
+  c.width = CW; c.height = CH;
+  const cx = c.getContext('2d');
+  cx.clearRect(0, 0, CW, CH);
+  if (state.img) cx.drawImage(state.img, state.imgX, state.imgY, state.img.width * state.imgScale, state.img.height * state.imgScale);
+  let id = cx.getImageData(0, 0, CW, CH);
+  id = applyTextCutout(id, buildTextMask(getTextParams()));
+  cx.putImageData(id, 0, 0);
+  layerCache.print = c;
+  return c;
+}
+
+function buildWhiteLayer() {
+  if (layerCache.white) return layerCache.white;
+  const cl = buildColorLayer(getSubjectMaskCanvas(), WHITE_COLOR);
+  let id = cl.getContext('2d').getImageData(0, 0, CW, CH);
+  id = applyTextCutout(id, buildTextMask(getTextParams()));
+  cl.getContext('2d').putImageData(id, 0, 0);
+  layerCache.white = cl;
+  return cl;
+}
+
+function buildReverseLayer() {
+  if (layerCache.reverse) return layerCache.reverse;
+  const cl = buildColorLayer(getBackgroundMaskCanvas(), REVERSE_COLOR);
+  let id = cl.getContext('2d').getImageData(0, 0, CW, CH);
+  id = applyTextCutout(id, buildTextMask(getTextParams()));
+  cl.getContext('2d').putImageData(id, 0, 0);
+  layerCache.reverse = cl;
+  return cl;
+}
+
+function invalidateLayers() {
+  layerCache = { print: null, white: null, reverse: null };
+}
+
+// ── 渲染 ──
+function render() {
+  ctx.clearRect(0, 0, CW, CH);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, CW, CH);
+  
+  const v = state.viewLayer;
+  if (v === 'composite' || v === 'print') {
+    ctx.globalAlpha = 1;
+    ctx.drawImage(buildPrintLayer(), 0, 0);
+  }
+  if (v === 'composite') {
+    if (ctrl.showPrint.checked) {
+      ctx.globalAlpha = 1;
+      ctx.drawImage(buildPrintLayer(), 0, 0);
+    }
+    // 白墨层：近黑色(5,1,1) + 人物蒙版alpha + 文字镂空
+    if (ctrl.showWhite.checked && state.subjectMask && state.img) {
+      ctx.globalAlpha = 1;
+      const wC = document.createElement('canvas');
+      wC.width = CW; wC.height = CH;
+      const wCtx = wC.getContext('2d');
+      
+      // 先绘制白墨层（跟随图片位置和缩放）
+      const tmpMask = document.createElement('canvas');
+      tmpMask.width = state.subjectMask.width; tmpMask.height = state.subjectMask.height;
+      const tmpCtx = tmpMask.getContext('2d');
+      const tmpData = tmpCtx.createImageData(state.subjectMask.width, state.subjectMask.height);
+      const srcD = state.subjectMask.data;
+      const dstD = tmpData.data;
+      for (let i = 0; i < srcD.length; i += 4) {
+        dstD[i] = 5; dstD[i+1] = 1; dstD[i+2] = 1; dstD[i+3] = srcD[i+3];
+      }
+      tmpCtx.putImageData(tmpData, 0, 0);
+      wCtx.drawImage(tmpMask, state.imgX, state.imgY, state.img.width * state.imgScale, state.img.height * state.imgScale);
+      
+      // 应用文字镂空
+      let wId = wCtx.getImageData(0, 0, CW, CH);
+      wId = applyTextCutout(wId, buildTextMask(getTextParams()));
+      wCtx.putImageData(wId, 0, 0);
+      
+      ctx.drawImage(wC, 0, 0);
+    }
+    // 逆向层：红色(231,27,26) + 背景蒙版alpha + 文字镂空
+    if (ctrl.showReverse.checked && state.subjectMask && state.img) {
+      ctx.globalAlpha = 1;
+      const rC = document.createElement('canvas');
+      rC.width = CW; rC.height = CH;
+      const rCtx = rC.getContext('2d');
+      
+      // 先绘制逆向层
+      const tmpMask2 = document.createElement('canvas');
+      tmpMask2.width = state.subjectMask.width; tmpMask2.height = state.subjectMask.height;
+      const tmpCtx2 = tmpMask2.getContext('2d');
+      const tmpData2 = tmpCtx2.createImageData(state.subjectMask.width, state.subjectMask.height);
+      const srcD2 = state.subjectMask.data;
+      const dstD2 = tmpData2.data;
+      for (let i = 0; i < srcD2.length; i += 4) {
+        dstD2[i] = 231; dstD2[i+1] = 27; dstD2[i+2] = 26; dstD2[i+3] = 255 - srcD2[i+3];
+      }
+      tmpCtx2.putImageData(tmpData2, 0, 0);
+      rCtx.drawImage(tmpMask2, state.imgX, state.imgY, state.img.width * state.imgScale, state.img.height * state.imgScale);
+      
+      // 应用文字镂空
+      let rId = rCtx.getImageData(0, 0, CW, CH);
+      rId = applyTextCutout(rId, buildTextMask(getTextParams()));
+      rCtx.putImageData(rId, 0, 0);
+      
+      ctx.drawImage(rC, 0, 0);
+    }
+    ctx.globalAlpha = 1;
+  } else if (v === 'white') {
+    ctx.fillStyle = '#282828';
+    ctx.fillRect(0, 0, CW, CH);
+    ctx.globalAlpha = 1;
+    if (state.subjectMask && state.img) {
+      const wC = document.createElement('canvas');
+      wC.width = CW; wC.height = CH;
+      const wCtx = wC.getContext('2d');
+      const tmpW = document.createElement('canvas');
+      tmpW.width = state.subjectMask.width; tmpW.height = state.subjectMask.height;
+      const tmpWC = tmpW.getContext('2d');
+      const tmpWD = tmpWC.createImageData(state.subjectMask.width, state.subjectMask.height);
+      const srcW = state.subjectMask.data;
+      const dstW = tmpWD.data;
+      for (let i = 0; i < srcW.length; i += 4) {
+        dstW[i] = 5; dstW[i+1] = 1; dstW[i+2] = 1; dstW[i+3] = srcW[i+3];
+      }
+      tmpWC.putImageData(tmpWD, 0, 0);
+      wCtx.drawImage(tmpW, state.imgX, state.imgY, state.img.width * state.imgScale, state.img.height * state.imgScale);
+      let wId = wCtx.getImageData(0, 0, CW, CH);
+      wId = applyTextCutout(wId, buildTextMask(getTextParams()));
+      wCtx.putImageData(wId, 0, 0);
+      ctx.drawImage(wC, 0, 0);
+    }
+  } else if (v === 'reverse') {
+    ctx.fillStyle = '#282828';
+    ctx.fillRect(0, 0, CW, CH);
+    ctx.globalAlpha = 1;
+    if (state.subjectMask && state.img) {
+      const rC = document.createElement('canvas');
+      rC.width = CW; rC.height = CH;
+      const rCtx = rC.getContext('2d');
+      const tmpR = document.createElement('canvas');
+      tmpR.width = state.subjectMask.width; tmpR.height = state.subjectMask.height;
+      const tmpRC = tmpR.getContext('2d');
+      const tmpRD = tmpRC.createImageData(state.subjectMask.width, state.subjectMask.height);
+      const srcR = state.subjectMask.data;
+      const dstR = tmpRD.data;
+      for (let i = 0; i < srcR.length; i += 4) {
+        dstR[i] = 231; dstR[i+1] = 27; dstR[i+2] = 26;
+        dstR[i+3] = 255 - srcR[i+3];
+      }
+      tmpRC.putImageData(tmpRD, 0, 0);
+      rCtx.drawImage(tmpR, state.imgX, state.imgY, state.img.width * state.imgScale, state.img.height * state.imgScale);
+      let rId = rCtx.getImageData(0, 0, CW, CH);
+      rId = applyTextCutout(rId, buildTextMask(getTextParams()));
+      rCtx.putImageData(rId, 0, 0);
+      ctx.drawImage(rC, 0, 0);
+    }
+  }
+  
+  if (state.img && (v === 'composite' || v === 'print')) {
+    const w = state.img.width * state.imgScale, h = state.img.height * state.imgScale;
+    ctx.strokeStyle = 'rgba(230, 58, 45, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeRect(state.imgX, state.imgY, w, h);
+    ctx.setLineDash([]);
+  }
+  
+  updateTransform();
+}
+
+function updateTransform() {
+  canvasWrap.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+  canvasWrap.style.transformOrigin = 'center center';
+}
+
+// ── 控件绑定 ──
+function bindSlider(slider, valSpan, suffix, onChange) {
+  slider.addEventListener('input', () => {
+    valSpan.textContent = slider.value + (suffix || '');
+    onChange(+slider.value);
+  });
+}
+
+bindSlider(ctrl.pScale, ctrl.pScaleVal, '%', v => { state.imgScale = v / 100; invalidateLayers(); render(); });
+bindSlider(ctrl.pX, ctrl.pXVal, '', v => { state.imgX = v; invalidateLayers(); render(); });
+bindSlider(ctrl.pY, ctrl.pYVal, '', v => { state.imgY = v; invalidateLayers(); render(); });
+bindSlider(ctrl.tTopSize, ctrl.tTopSizeVal, '', v => { invalidateLayers(); render(); });
+bindSlider(ctrl.tTopY, ctrl.tTopYVal, '', v => { invalidateLayers(); render(); });
+bindSlider(ctrl.tTopStroke, ctrl.tTopStrokeVal, '', v => { invalidateLayers(); render(); });
+bindSlider(ctrl.tBotSize, ctrl.tBotSizeVal, '', v => { invalidateLayers(); render(); });
+bindSlider(ctrl.tBotY, ctrl.tBotYVal, '', v => { invalidateLayers(); render(); });
+bindSlider(ctrl.tBotStroke, ctrl.tBotStrokeVal, '', v => { invalidateLayers(); render(); });
+
+[ctrl.tTop, ctrl.tBot].forEach(el => el.addEventListener('input', () => { invalidateLayers(); render(); }));
+[ctrl.showPrint, ctrl.showWhite, ctrl.showReverse].forEach(el => el.addEventListener('change', () => render()));
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.viewLayer = btn.dataset.layer;
+    render();
+  });
+});
+
+// ── 文件上传 ──
+fileInput.addEventListener('change', async () => {
+  console.log('文件选择事件触发');
+  if (!fileInput.files.length) return;
+  const file = fileInput.files[0];
+  console.log('选择文件:', file.name, file.size);
+  
+  const img = new Image();
+  img.onload = async () => {
+    console.log('图片加载完成:', img.width, 'x', img.height);
+    state.img = img;
+    const s = fitContain(img.width, img.height, CW * 0.85, CH * 0.7);
+    state.imgScale = s;
+    state.imgX = (CW - img.width * s) / 2;
+    state.imgY = (CH - img.height * s) / 2;
+    ctrl.pScale.value = Math.round(s * 100);
+    ctrl.pScaleVal.textContent = Math.round(s * 100) + '%';
+    ctrl.pX.value = Math.round(state.imgX);
+    ctrl.pXVal.textContent = Math.round(state.imgX);
+    ctrl.pY.value = Math.round(state.imgY);
+    ctrl.pYVal.textContent = Math.round(state.imgY);
+    
+    state.subjectMask = await extractSubject(img);
+    
+    btnGen.disabled = false;
+    dragHint.style.opacity = '0';
+    invalidateLayers();
+    render();
+    console.log('上传完成');
+  };
+  img.onerror = () => { console.error('图片加载失败'); };
+  img.src = URL.createObjectURL(file);
+});
+
+// ── 拖拽图片 ──
+let dragging = false, dsx, dsy, disx, disy;
+canvas.addEventListener('mousedown', e => {
+  if (!state.img) return;
+  dragging = true;
+  const r = canvas.getBoundingClientRect();
+  dsx = (e.clientX - r.left) / state.zoom;
+  dsy = (e.clientY - r.top) / state.zoom;
+  disx = state.imgX;
+  disy = state.imgY;
+  canvas.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const r = canvas.getBoundingClientRect();
+  state.imgX = disx + ((e.clientX - r.left) / state.zoom - dsx);
+  state.imgY = disy + ((e.clientY - r.top) / state.zoom - dsy);
+  ctrl.pX.value = Math.round(state.imgX);
+  ctrl.pXVal.textContent = Math.round(state.imgX);
+  ctrl.pY.value = Math.round(state.imgY);
+  ctrl.pYVal.textContent = Math.round(state.imgY);
+  invalidateLayers();
+  render();
+});
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  canvas.style.cursor = 'default';
+});
+
+// ── 画布缩放/平移 ──
+let panning = false, psx, psy, pox, poy;
+canvasArea.addEventListener('mousedown', e => {
+  if (e.target === canvasArea || e.target === canvasWrap) {
+    panning = true;
+    psx = e.clientX; psy = e.clientY;
+    pox = state.panX; poy = state.panY;
+    canvasArea.style.cursor = 'grabbing';
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (!panning) return;
+  state.panX = pox + (e.clientX - psx);
+  state.panY = poy + (e.clientY - psy);
+  updateTransform();
+});
+window.addEventListener('mouseup', () => {
+  panning = false;
+  canvasArea.style.cursor = 'default';
+});
+
+canvasArea.addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey) return;
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.05 : 0.05;
+  state.zoom = Math.max(0.2, Math.min(2, state.zoom + delta));
+  updateTransform();
+}, { passive: false });
+
+document.getElementById('zoomIn').addEventListener('click', () => {
+  state.zoom = Math.min(2, state.zoom + 0.1);
+  updateTransform();
+});
+document.getElementById('zoomOut').addEventListener('click', () => {
+  state.zoom = Math.max(0.2, state.zoom - 0.1);
+  updateTransform();
+});
+document.getElementById('zoomFit').addEventListener('click', () => {
+  const areaW = canvasArea.clientWidth - 40;
+  const areaH = canvasArea.clientHeight - 40;
+  state.zoom = Math.min(areaW / CW, areaH / CH, 1);
+  state.panX = 0; state.panY = 0;
+  updateTransform();
+});
+
+// ── 生成 PSD ──
+// ── 导出 PNG ──
+btnGen.addEventListener('click', async () => {
+  showBusy('正在导出 PNG...');
+  await new Promise(r => setTimeout(r, 50));
+  
+  try {
+    // 依次切换到每个图层视图并截图
+    const layers = ['print', 'white', 'reverse'];
+    const names = ['印刷层.png', '白墨层.png', '逆向层.png'];
+    
+    for (let i = 0; i < layers.length; i++) {
+      state.viewLayer = layers[i];
+      render();
+      // 等待渲染完成
+      await new Promise(r => setTimeout(r, 100));
+      // 截图
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      dl(blob, names[i]);
+      await new Promise(r => setTimeout(r, 300));
+    }
+    
+    // 恢复合成视图
+    state.viewLayer = 'composite';
+    render();
+  } catch(e) {
+    alert('导出失败: ' + e.message);
+  } finally {
+    hideBusy();
+  }
+});
+
+function dl(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+
+// ── 初始化 ──
+function init() {
+  state.zoom = Math.min((canvasArea.clientWidth - 40) / CW, (canvasArea.clientHeight - 40) / CH, 0.8);
+  updateTransform();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, CW, CH);
+  ctx.fillStyle = '#444';
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('📷 上传照片开始编辑', CW / 2, CH / 2 - 10);
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = '#333';
+  ctx.fillText('791 × 1098 px · 63×89mm @ 300dpi · Asap Bold', CW / 2, CH / 2 + 20);
+  ctx.fillText('白墨=人物主体 · 逆向=背景', CW / 2, CH / 2 + 40);
+  console.log('页面初始化完成');
+}
+
+window.addEventListener('resize', () => {
+  state.zoom = Math.min((canvasArea.clientWidth - 40) / CW, (canvasArea.clientHeight - 40) / CH, 1);
+  updateTransform();
+});
+
+init();
+console.log('脚本加载完成');
+</script>
+</body>
+</html>

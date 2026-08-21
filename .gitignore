@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.env
+_tmp/
+output/
+node_modules/
+.DS_Store
+*.bak
+*.bak2
+*.bak3
+*.stable
+:memory:.ses
+package.json.tmp
