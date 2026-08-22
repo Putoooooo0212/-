@@ -5,4 +5,4 @@ Pillow
 numpy
 opencv-python-headless
 rembg
-onnxruntime
+onnxruntime==1.16.3

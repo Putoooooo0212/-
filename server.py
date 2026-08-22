@@ -164,9 +164,13 @@ async def preview(image: UploadFile = File(...), top_text: str = Form(""), botto
     card = fit_image_to_card(img)
 
     try:
+        print(f"DEBUG: input image size = {img.size}")
         subject = get_subject_mask(img.convert("RGBA"))
+        print(f"DEBUG: subject mask size = {subject.size}")
     except Exception as e:
         print(f"rembg 失败: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     subject = subject.resize((CARD_W, CARD_H), Image.LANCZOS)
@@ -194,7 +198,9 @@ async def generate(image: UploadFile = File(...), top_text: str = Form(""), bott
     card = fit_image_to_card(img)
 
     try:
-        subject = get_subject_mask(img.convert("RGBA"))
+        print(f"DEBUG: input image size = {img.size}")
+    subject = get_subject_mask(img.convert("RGBA"))
+    print(f"DEBUG: subject mask size = {subject.size}")
     except Exception as e:
         print(f"rembg 失败，使用 fallback: {e}")
         img_cv = cv2.cvtColor(np.array(img.convert("RGB")), cv2.COLOR_RGB2BGR)
@@ -317,9 +323,13 @@ async def export_png(image: UploadFile = File(...), top_text: str = Form(""), bo
     card = fit_image_to_card(img)
 
     try:
+        print(f"DEBUG: input image size = {img.size}")
         subject = get_subject_mask(img.convert("RGBA"))
+        print(f"DEBUG: subject mask size = {subject.size}")
     except Exception as e:
         print(f"rembg 失败: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     subject = subject.resize((CARD_W, CARD_H), Image.LANCZOS)
