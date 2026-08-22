@@ -4,5 +4,4 @@ python-multipart
 Pillow
 numpy
 opencv-python-headless
-rembg
-onnxruntime==1.16.3
+rembg[cpu]
